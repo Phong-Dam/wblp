@@ -1,0 +1,33 @@
+[package]
+name = "wblp"
+version = "0.1.6"
+edition = "2021"
+license = "MIT"
+description = "BLP1 image format decoder"
+rust-version = "1.85.0"
+exclude = ["benches/**", "test*", "test_output.png", ".claude/", "encode/", "docs/", "examples/", "Cargo.toml.orig"]
+
+[dependencies]
+zune-jpeg = { version = "0.5", features = ["x86", "std"] }
+zune-core = "0.5"
+image = { version = "0.25", features = ["png"] }
+thiserror = "2"
+bytemuck = "1"
+rayon = "1.12.0"
+once_cell = "1"
+turbojpeg = "1.4.0"
+clap = { version = "4", features = ["derive"] }
+walkdir = "2"
+indicatif = "0.18"
+
+[features]
+default = ["blp2png", "png2blp"]
+blp2png = []
+png2blp = []
+
+[profile.release]
+lto = false
+codegen-units = 16
+
+[dev-dependencies]
+criterion = "0.5"

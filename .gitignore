@@ -1,0 +1,27 @@
+# Build outputs
+/target/
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test outputs
+test_output.png
+*.blp
+!test.blp
+
+# Package staging (created by cargo package)
+package/
+
+# Logs
+*.log
+#claude
+.claude/
+docs/
