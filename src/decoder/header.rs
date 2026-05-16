@@ -64,8 +64,9 @@ impl BLP1Header {
             return Err(BLPError::CorruptedData("dimensions too large"));
         }
 
-        // Validate alpha bit depth
-        match header.alpha_bitdepth {
+        // Validate alpha bit depth (cap at 8 if >= 8)
+        let alpha_bitdepth = if header.alpha_bitdepth >= 8 { 8 } else { header.alpha_bitdepth };
+        match alpha_bitdepth {
             0 | 1 | 4 | 8 => {}
             _ => return Err(BLPError::UnsupportedAlpha(header.alpha_bitdepth)),
         }

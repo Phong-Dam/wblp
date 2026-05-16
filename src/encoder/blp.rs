@@ -345,6 +345,7 @@ fn compress_rgba_to_jpeg(
         return Err(BLPError::EncodeFailed("tj3.init failed".to_string()));
     }
 
+    let quality = quality.clamp(1, 100);
     let jpeg_raw = unsafe {
         struct Guard(raw::tjhandle);
         impl Drop for Guard {

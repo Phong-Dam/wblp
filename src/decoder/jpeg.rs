@@ -86,7 +86,8 @@ pub fn decode_jpeg(
     };
 
     let mut imgbuf: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width, height);
-    let force_opaque = header.alpha_bitdepth == 0;
+    let alpha_bitdepth = header.alpha_bitdepth.min(8);
+    let force_opaque = alpha_bitdepth == 0;
 
     match bytes_per_pixel {
         4 => {

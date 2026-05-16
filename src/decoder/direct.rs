@@ -75,14 +75,15 @@ pub fn decode_direct(
     let mut pixels = vec![0u8; pixel_count * 4];
     let mut output_idx = 0;
 
-    // Decode alpha if present
-    let alpha_data = if header.alpha_bitdepth > 0 {
+    // Decode alpha if present (alpha bitdepth capped at 8)
+    let alpha_bitdepth = header.alpha_bitdepth.min(8);
+    let alpha_data = if alpha_bitdepth > 0 {
         let alpha_offset = pixel_count;
-        let alpha_size = match header.alpha_bitdepth {
+        let alpha_size = match alpha_bitdepth {
             1 => (pixel_count + 7) / 8,
             4 => (pixel_count + 1) / 2,
             8 => pixel_count,
-            _ => return Err(BLPError::UnsupportedAlpha(header.alpha_bitdepth)),
+            _ => return Err(BLPError::UnsupportedAlpha(alpha_bitdepth)),
         };
 
         if mip_data.len() < alpha_offset + alpha_size {
@@ -90,11 +91,11 @@ pub fn decode_direct(
         }
 
         let raw_alpha = &mip_data[alpha_offset..alpha_offset + alpha_size];
-        match header.alpha_bitdepth {
+        match alpha_bitdepth {
             1 => decode_alpha_1bit(raw_alpha, pixel_count),
             4 => decode_alpha_4bit(raw_alpha, pixel_count),
             8 => decode_alpha_8bit(raw_alpha, pixel_count),
-            _ => return Err(BLPError::UnsupportedAlpha(header.alpha_bitdepth)),
+            _ => return Err(BLPError::UnsupportedAlpha(alpha_bitdepth)),
         }
     } else {
         vec![0xFF; pixel_count]

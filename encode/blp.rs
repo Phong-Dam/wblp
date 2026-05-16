@@ -116,6 +116,7 @@ impl ImageBlp {
             if handle.is_null() {
                 return Err(BlpError::new("tj3.init"));
             }
+            let quality = quality.clamp(1, 100);
             let jpeg_raw = unsafe {
                 struct Guard(raw::tjhandle);
                 impl Drop for Guard {
