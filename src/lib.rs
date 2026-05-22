@@ -7,7 +7,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 pub use encoder::{encode_png, save_png, BLPEncoder, encode_file_to_blp, encode_rgba_to_blp, encode_to_blp_file, encode_raw_rgba};
 pub use error::{BLPError, Result};
-pub use decoder::header::BLP1Header;
+pub use decoder::{BLP1Header, ContentType};
 pub use image::{ImageBuffer, Rgba};
 pub use decoder::palette::RgbaColor;
 
@@ -102,8 +102,8 @@ impl BLPDecoder {
     #[deprecated(since = "0.1.5", note = "use metadata().format instead")]
     pub fn content_type(&self) -> Result<&'static str> {
         Ok(match self.header()?.content_type() {
-            Some(decoder::header::ContentType::JPEG) => "JPEG",
-            Some(decoder::header::ContentType::Direct) => "Direct",
+            Some(ContentType::JPEG) => "JPEG",
+            Some(ContentType::Direct) => "Direct",
             None => "Unknown",
         })
     }
@@ -121,8 +121,8 @@ impl BLPDecoder {
     pub fn metadata(&self) -> Result<BLPMetadata> {
         let h = self.header()?;
         let format = match h.content_type() {
-            Some(decoder::header::ContentType::JPEG) => BLPFormat::JPEG,
-            Some(decoder::header::ContentType::Direct) => BLPFormat::Direct,
+            Some(ContentType::JPEG) => BLPFormat::JPEG,
+            Some(ContentType::Direct) => BLPFormat::Direct,
             None => return Err(BLPError::CorruptedData("invalid content type")),
         };
         Ok(BLPMetadata {
@@ -354,8 +354,8 @@ fn decode_blp_mipmap_with_header(
     }
 
     match header.content_type() {
-        Some(decoder::header::ContentType::Direct) => decoder::direct::decode_direct(header, data, level),
-        Some(decoder::header::ContentType::JPEG) => decoder::jpeg::decode_jpeg(header, data, level),
+        Some(ContentType::Direct) => crate::decoder::decode_direct(header, data, level),
+        Some(ContentType::JPEG) => crate::decoder::decode_jpeg(header, data, level),
         None => Err(BLPError::CorruptedData("invalid content type")),
     }
 }

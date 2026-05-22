@@ -41,6 +41,31 @@ pub fn decode_jpeg(
     let mip_offset = header.mipmap_offsets[level] as usize;
     let mip_size = header.mipmap_sizes[level] as usize;
 
+    // Special case: no mipmaps (has_mipmaps=0) with JPEG content.
+    // The entire JPEG data IS the mipmap data - mip_offset points to end
+    // of file and mip_size=0 means there's no separate mipmap, the JPEG
+    // header+data at palette_offset IS the base image.
+    let has_mipmaps = header.has_mipmaps != 0;
+    let is_no_mipmap_jpeg = !has_mipmaps && header.content == 0 && level == 0;
+
+    if is_no_mipmap_jpeg {
+        // Use palette_offset + 4 as start of JPEG data, file end as end
+        let jpeg_start = jpeg_header_start;
+        let jpeg_end = data.len();
+        let jpeg_data = data[jpeg_start..jpeg_end].to_vec();
+
+        let options = ZuneOptions::default()
+            .jpeg_set_out_colorspace(zune_core::colorspace::ColorSpace::CMYK);
+
+        let mut decoder = JpegDecoder::new_with_options(Cursor::new(&jpeg_data), options);
+        decoder.decode_headers()
+            .map_err(|e| BLPError::JpegDecodeFailed(format!("JPEG header decode failed: {e}")))?;
+        let pixels = decoder.decode()
+            .map_err(|e| BLPError::JpegDecodeFailed(format!("JPEG decode failed: {e}")))?;
+
+        return decode_jpeg_pixels_to_image(&pixels, width, height, header.alpha_bitdepth);
+    }
+
     if mip_offset == 0 || mip_size == 0 {
         return Err(BLPError::InvalidMipmapOffset(level));
     }
@@ -70,6 +95,16 @@ pub fn decode_jpeg(
     let pixels = decoder.decode()
         .map_err(|e| BLPError::JpegDecodeFailed(format!("JPEG decode failed: {e}")))?;
 
+    decode_jpeg_pixels_to_image(&pixels, width, height, header.alpha_bitdepth)
+}
+
+/// Decode JPEG raw pixels to ImageBuffer, handling CMYK->RGBA conversion
+fn decode_jpeg_pixels_to_image(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    alpha_bitdepth: u32,
+) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>> {
     let expected_len = (width * height) as usize;
     let bytes_per_pixel = if pixels.len() == expected_len * 4 {
         4
@@ -86,12 +121,11 @@ pub fn decode_jpeg(
     };
 
     let mut imgbuf: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width, height);
-    let alpha_bitdepth = header.alpha_bitdepth.min(8);
+    let alpha_bitdepth = alpha_bitdepth.min(8);
     let force_opaque = alpha_bitdepth == 0;
 
     match bytes_per_pixel {
         4 => {
-
             for (chunk, px) in pixels.chunks_exact(4).zip(imgbuf.pixels_mut()) {
                 let a = if force_opaque { 255 } else { chunk[3] };
                 *px = Rgba([
@@ -103,7 +137,6 @@ pub fn decode_jpeg(
             }
         }
         3 => {
-
             for (chunk, px) in pixels.chunks_exact(3).zip(imgbuf.pixels_mut()) {
                 *px = Rgba([
                     chunk[2], // R = original B
