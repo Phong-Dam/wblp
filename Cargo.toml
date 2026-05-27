@@ -1,6 +1,6 @@
 [package]
 name = "wblp"
-version = "0.1.9"
+version = "0.1.10"
 edition = "2021"
 license = "MIT"
 description = "BLP1 image format decoder"

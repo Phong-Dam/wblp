@@ -5,29 +5,23 @@ use crate::decoder::palette::Palette;
 
 /// Decode 1-bit alpha data: 8 pixels packed per byte, LSB first
 fn decode_alpha_1bit(data: &[u8], pixel_count: usize) -> Vec<u8> {
-    let mut alpha = Vec::with_capacity(pixel_count);
-    for (i, &byte) in data.iter().enumerate() {
-        for bit in 0..8 {
-            if i * 8 + bit >= pixel_count {
-                break;
-            }
-            alpha.push(if byte & (1 << bit) != 0 { 0xFF } else { 0x00 });
-        }
+    // Pre-allocate once - enables LLVM auto-vectorization
+    let mut alpha = vec![0u8; pixel_count];
+    for i in 0..pixel_count {
+        // Branchless: multiply by 0xFF to expand 0/1 to 0/255
+        alpha[i] = ((data[i / 8] >> (i % 8)) & 1) * 0xFF;
     }
     alpha
 }
 
 /// Decode 4-bit alpha data: 2 pixels per byte
 fn decode_alpha_4bit(data: &[u8], pixel_count: usize) -> Vec<u8> {
-    let mut alpha = Vec::with_capacity(pixel_count);
-    for (i, &byte) in data.iter().enumerate() {
-        if i * 2 >= pixel_count {
-            break;
-        }
-        alpha.push((byte & 0xF0).wrapping_mul(17)); // Scale 0-15 to 0-255
-        if i * 2 + 1 < pixel_count {
-            alpha.push((byte & 0x0F).wrapping_mul(17));
-        }
+    let mut alpha = vec![0u8; pixel_count];
+    for i in 0..pixel_count {
+        let byte_idx = i / 2;
+        let shift = if i % 2 == 0 { 4 } else { 0 };
+        let value = (data[byte_idx] >> shift) & 0x0F;
+        alpha[i] = value.wrapping_mul(17); // Scale 0-15 to 0-255
     }
     alpha
 }

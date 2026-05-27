@@ -50,7 +50,7 @@ impl BLP1Header {
 
         // SAFETY: data.len() >= 156 ensures we read within bounds.
         // BLP1Header is repr(C) with known layout matching the binary format.
-        let header = unsafe {
+        let mut header = unsafe {
             let ptr = data.as_ptr().cast::<BLP1Header>();
             ptr.read_unaligned()
         };
@@ -64,12 +64,11 @@ impl BLP1Header {
             return Err(BLPError::CorruptedData("dimensions too large"));
         }
 
-        // Validate alpha bit depth (cap at 8 if >= 8)
-        let alpha_bitdepth = if header.alpha_bitdepth >= 8 { 8 } else { header.alpha_bitdepth };
-        match alpha_bitdepth {
-            0 | 1 | 4 | 8 => {}
-            _ => return Err(BLPError::UnsupportedAlpha(header.alpha_bitdepth)),
-        }
+        // Validate alpha bit depth (treat invalid values as 0/no alpha)
+        header.alpha_bitdepth = match header.alpha_bitdepth {
+            0 | 1 | 4 | 8 => header.alpha_bitdepth,
+            _ => 0,
+        };
 
         Ok(header)
     }

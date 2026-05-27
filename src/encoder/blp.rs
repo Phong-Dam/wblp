@@ -34,21 +34,6 @@ use crate::encoder::utils::rebuild_minimal_jpeg_header::rebuild_minimal_jpeg_hea
 
 const MAX_MIPS: usize = 16;
 
-#[derive(Clone)]
-pub struct Mip {
-    pub w: u32,
-    pub h: u32,
-    pub visible: bool,
-    pub encode_ms: f64,
-}
-
-pub struct Ctx {
-    pub bytes: Vec<u8>,
-    pub mips: Vec<Mip>,
-    pub has_alpha: bool,
-    pub encode_ms_total: f64,
-}
-
 /// BLP Encoder with method chaining API
 ///
 /// # Example
@@ -175,6 +160,7 @@ fn encode_rgba_to_blp_with_mipmaps(
     let mip_images: Vec<ImageBuffer<Rgba<u8>, Vec<u8>>> = if generate_mipmaps {
         generate_mipmap_chain(img)
     } else {
+        // Single level only - no clone needed if we refactor to pass reference
         vec![img.clone()]
     };
 
@@ -190,20 +176,19 @@ fn encode_rgba_to_blp_with_mipmaps(
 /// Generate mipmap chain from base image
 fn generate_mipmap_chain(img: &ImageBuffer<Rgba<u8>, Vec<u8>>) -> Vec<ImageBuffer<Rgba<u8>, Vec<u8>>> {
     let mut mips = Vec::new();
-    let mut w = img.width();
-    let mut h = img.height();
-
     mips.push(img.clone());
 
     loop {
+        let prev = &mips[mips.len() - 1];
+        let w = (prev.width() / 2).max(1);
+        let h = (prev.height() / 2).max(1);
+
         if w == 1 && h == 1 {
+            mips.push(imageops::resize(prev, w, h, imageops::FilterType::Triangle));
             break;
         }
-        w = (w / 2).max(1);
-        h = (h / 2).max(1);
 
-        let resized = imageops::resize(&mips[0], w, h, imageops::FilterType::Triangle);
-        mips.push(resized);
+        mips.push(imageops::resize(prev, w, h, imageops::FilterType::Triangle));
 
         if mips.len() >= MAX_MIPS {
             break;
@@ -264,37 +249,7 @@ pub fn encode_rgba_to_blp(
     quality: u8,
 ) -> std::result::Result<Vec<u8>, BLPError> {
     let has_alpha = img.pixels().any(|p| p[3] != 255);
-
-    let mut mip_images: Vec<ImageBuffer<Rgba<u8>, Vec<u8>>> = Vec::new();
-    let mut w = img.width();
-    let mut h = img.height();
-
-    loop {
-        if mip_images.len() >= MAX_MIPS {
-            break;
-        }
-        if w == 0 || h == 0 {
-            break;
-        }
-
-        if mip_images.is_empty() {
-            mip_images.push(img.clone());
-        } else {
-            let resized = imageops::resize(
-                &mip_images[0],
-                w.max(1),
-                h.max(1),
-                imageops::FilterType::Triangle,
-            );
-            mip_images.push(resized);
-        }
-
-        if w == 1 && h == 1 {
-            break;
-        }
-        w = (w / 2).max(1);
-        h = (h / 2).max(1);
-    }
+    let mip_images = generate_mipmap_chain(img);
 
     let mut encoded_mips: Vec<Vec<u8>> = Vec::new();
     for mip_img in &mip_images {

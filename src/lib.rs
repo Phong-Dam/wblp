@@ -125,10 +125,14 @@ impl BLPDecoder {
             Some(ContentType::Direct) => BLPFormat::Direct,
             None => return Err(BLPError::CorruptedData("invalid content type")),
         };
+        // Calculate mipmap count directly from header (avoid redundant call to mipmap_count())
+        let mipmap_count = h.mipmap_offsets.iter().zip(h.mipmap_sizes.iter())
+            .filter(|(off, sz)| **off != 0 && **sz != 0)
+            .count();
         Ok(BLPMetadata {
             width: h.width,
             height: h.height,
-            mipmaps: self.mipmap_count()?,
+            mipmaps: mipmap_count,
             has_alpha: h.alpha_bitdepth > 0,
             format,
         })
