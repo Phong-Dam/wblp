@@ -42,14 +42,16 @@ pub fn decode_jpeg(
     let mip_size = header.mipmap_sizes[level] as usize;
 
     // Special case: no mipmaps (has_mipmaps=0) with JPEG content.
-    // The entire JPEG data IS the mipmap data - mip_offset points to end
-    // of file and mip_size=0 means there's no separate mipmap, the JPEG
-    // header+data at palette_offset IS the base image.
+    // The entire JPEG data IS the mipmap data - all mipmap slots point to
+    // the same base image data. Any level requested should return the
+    // same full-resolution image, NOT scaled down.
     let has_mipmaps = header.has_mipmaps != 0;
-    let is_no_mipmap_jpeg = !has_mipmaps && header.content == 0 && level == 0;
+    let is_no_mipmap_jpeg = !has_mipmaps && header.content == 0;
 
     if is_no_mipmap_jpeg {
-        // Use palette_offset + 4 as start of JPEG data, file end as end
+        // Use full resolution dimensions (ignore level)
+        let full_width = header.width;
+        let full_height = header.height;
         let jpeg_start = jpeg_header_start;
         let jpeg_end = data.len();
         let jpeg_data = data[jpeg_start..jpeg_end].to_vec();
@@ -63,7 +65,7 @@ pub fn decode_jpeg(
         let pixels = decoder.decode()
             .map_err(|e| BLPError::JpegDecodeFailed(format!("JPEG decode failed: {e}")))?;
 
-        return decode_jpeg_pixels_to_image(&pixels, width, height, header.alpha_bitdepth);
+        return decode_jpeg_pixels_to_image(&pixels, full_width, full_height, header.alpha_bitdepth);
     }
 
     if mip_offset == 0 || mip_size == 0 {

@@ -34,6 +34,20 @@ use crate::encoder::utils::rebuild_minimal_jpeg_header::rebuild_minimal_jpeg_hea
 
 const MAX_MIPS: usize = 16;
 
+/// Round to nearest power of 2
+fn round_to_pow2(dim: u32) -> u32 {
+    if dim <= 1 {
+        return 1;
+    }
+    let prev = dim.next_power_of_two();
+    let prev_prev = prev >> 1;
+    if prev - dim < dim - prev_prev {
+        prev
+    } else {
+        prev_prev
+    }
+}
+
 /// BLP Encoder with method chaining API
 ///
 /// # Example
@@ -141,6 +155,81 @@ impl BLPEncoder {
                 img.width(), img.height(), self.quality, self.generate_mipmaps),
             None => "no image".to_string(),
         }
+    }
+
+    /// Resize image by scale factor (e.g., 0.5 = half size, 2.0 = double)
+    ///
+    /// # Example
+    /// ```rust
+    /// use wblp::BLPEncoder;
+    ///
+    /// let encoder = BLPEncoder::from_path("input.png")?
+    ///     .resize_scale(0.5, image::imageops::FilterType::Triangle);
+    /// ```
+    pub fn resize_scale(mut self, scale: f32, filter: image::imageops::FilterType) -> Self {
+        if let Some(img) = &self.img {
+            let new_width = round_to_pow2(((img.width() as f32) * scale).max(1.0) as u32);
+            let new_height = round_to_pow2(((img.height() as f32) * scale).max(1.0) as u32);
+            self.img = Some(imageops::resize(img, new_width, new_height, filter));
+        }
+        self
+    }
+
+    /// Resize image by scale factor with minimum dimension threshold
+    ///
+    /// If min_dim is set and max(width, height) <= min_dim, no scaling is applied.
+    pub fn resize_scale_with_min(mut self, scale: f32, min_dim: u32, filter: image::imageops::FilterType) -> Self {
+        if let Some(img) = &self.img {
+            let max_dim = img.width().max(img.height());
+            if max_dim > min_dim {
+                let new_width = round_to_pow2(((img.width() as f32) * scale).max(1.0) as u32);
+                let new_height = round_to_pow2(((img.height() as f32) * scale).max(1.0) as u32);
+                self.img = Some(imageops::resize(img, new_width, new_height, filter));
+            }
+        }
+        self
+    }
+
+    /// Resize image to absolute dimensions (rounded to power of 2)
+    ///
+    /// # Example
+    /// ```rust
+    /// use wblp::BLPEncoder;
+    ///
+    /// let encoder = BLPEncoder::from_path("input.png")?
+    ///     .resize(256, 256, image::imageops::FilterType::Triangle);
+    /// ```
+    pub fn resize(mut self, width: u32, height: u32, filter: image::imageops::FilterType) -> Self {
+        if let Some(img) = &self.img {
+            let w = round_to_pow2(width.max(1));
+            let h = round_to_pow2(height.max(1));
+            self.img = Some(imageops::resize(img, w, h, filter));
+        }
+        self
+    }
+
+    /// Resize so the larger dimension equals max_dim, preserving aspect ratio (rounded to power of 2)
+    ///
+    /// # Example
+    /// ```rust
+    /// use wblp::BLPEncoder;
+    ///
+    /// // Resize so max(width, height) = 128
+    /// let encoder = BLPEncoder::from_path("input.png")?
+    ///     .resize_max(128, image::imageops::FilterType::Triangle);
+    /// ```
+    pub fn resize_max(mut self, max_dim: u32, filter: image::imageops::FilterType) -> Self {
+        if let Some(img) = &self.img {
+            let (w, h) = (img.width(), img.height());
+            let max_current = w.max(h);
+            if max_current > max_dim {
+                let scale = max_dim as f32 / max_current as f32;
+                let new_w = round_to_pow2(((w as f32) * scale).max(1.0) as u32);
+                let new_h = round_to_pow2(((h as f32) * scale).max(1.0) as u32);
+                self.img = Some(imageops::resize(img, new_w, new_h, filter));
+            }
+        }
+        self
     }
 }
 
@@ -380,7 +469,16 @@ fn build_blp1(
         }
     }
 
-    let common_header_len = common_header.len() as u32;
+    let mut common_header_len = common_header.len() as u32;
+    let single_mip_header_len = if encoded_mips.len() == 1 {
+        // For single mip, find actual JPEG header length using split_header_and_scan
+        // because find_common_prefix returns full mip for single-entry
+        let (h, _) = split_header_and_scan(&encoded_mips[0])?;
+        common_header_len = h as u32;
+        Some(h)
+    } else {
+        None
+    };
 
     let mut bytes = Vec::new();
 
@@ -405,26 +503,52 @@ fn build_blp1(
     bytes.extend_from_slice(&common_header_len.to_le_bytes());
 
     // JPEG header
-    bytes.extend_from_slice(&common_header);
+    if let Some(hlen) = single_mip_header_len {
+        // Single mip: use actual JPEG header portion
+        bytes.extend_from_slice(&encoded_mips[0][..hlen]);
+    } else {
+        bytes.extend_from_slice(&common_header);
+    }
 
     // Encode each mip and write payload
-    for (i, enc) in encoded_mips.iter().enumerate() {
-        if i >= MAX_MIPS {
-            break;
+    let mip_count = encoded_mips.len();
+    if mip_count == 1 {
+        // Single mip case (--no-mipmaps): replicate to all proper mipmap slots
+        // Calculate actual mipmap depth for this image size
+        let dim = w.max(h);
+        let mut actual_mips = 1;
+        let mut d = dim;
+        while d > 1 && actual_mips < MAX_MIPS {
+            d /= 2;
+            actual_mips += 1;
         }
-        let payload = &enc[common_header.len()..];
-        let offset = bytes.len();
-        let size = payload.len();
 
-        // Write offset
-        let off_pos = pos_offsets + i * 4;
-        bytes[off_pos..off_pos + 4].copy_from_slice(&(offset as u32).to_le_bytes());
-
-        // Write size
-        let sz_pos = pos_sizes + i * 4;
-        bytes[sz_pos..sz_pos + 4].copy_from_slice(&(size as u32).to_le_bytes());
-
+        let payload = &encoded_mips[0][single_mip_header_len.unwrap()..];
+        let offset = bytes.len() as u32;
+        let size = payload.len() as u32;
         bytes.extend_from_slice(payload);
+
+        // Write same offset/size to all actual mipmap slots
+        for i in 0..actual_mips {
+            let off_pos = pos_offsets + i * 4;
+            let sz_pos = pos_sizes + i * 4;
+            bytes[off_pos..off_pos + 4].copy_from_slice(&offset.to_le_bytes());
+            bytes[sz_pos..sz_pos + 4].copy_from_slice(&size.to_le_bytes());
+        }
+    } else {
+        // Normal multi-mip case
+        for i in 0..mip_count {
+            let payload = &encoded_mips[i][common_header.len()..];
+            let offset = bytes.len() as u32;
+            let size = payload.len() as u32;
+
+            let off_pos = pos_offsets + i * 4;
+            let sz_pos = pos_sizes + i * 4;
+            bytes[off_pos..off_pos + 4].copy_from_slice(&offset.to_le_bytes());
+            bytes[sz_pos..sz_pos + 4].copy_from_slice(&size.to_le_bytes());
+
+            bytes.extend_from_slice(payload);
+        }
     }
 
     Ok(bytes)

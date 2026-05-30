@@ -10,7 +10,7 @@ BLP is Blizzard's texture format used in Warcraft III.
 
 ```toml
 [dependencies]
-wblp = "0.1.10"
+wblp = "0.1.11"
 ```
 
 ### CLI

@@ -14,6 +14,8 @@ Thumbs.db
 
 # Test outputs
 test_output.png
+test/
+tests/
 *.blp
 !test.blp
 
